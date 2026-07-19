@@ -1,0 +1,7 @@
+[submodule "pmos-example"]
+	path = pmos-example
+	url = git@github.com:baiyunquan/OpenStick-Builder.git
+	branch = pmos-zhihe-ufi103s-v05
+[submodule "debian-dtbs"]
+	path = debian-dtbs
+	url = git@github.com:baiyunquan/OpenStick-Builder-General.git

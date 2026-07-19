@@ -1,0 +1,6 @@
+artifacts/
+postmarketos-*.tar.gz
+*.simg
+*.raw
+*.log
+.cache/

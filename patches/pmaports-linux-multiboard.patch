@@ -1,0 +1,41 @@
+--- a/device/testing/linux-postmarketos-qcom-msm8916/APKBUILD
++++ b/device/testing/linux-postmarketos-qcom-msm8916/APKBUILD
+@@ -9 +9 @@
+-pkgrel=6
++pkgrel=7
+@@ -52,0 +53,19 @@
++	openstick-dtbs.list
++	msm8916-mifi.dtsi
++	msm8916-sp970.dtsi
++	msm8916-generic-m9s.dts
++	msm8916-generic-mf68e.dts
++	msm8916-generic-uf02.dts
++	msm8916-gexing-sp970.dts
++	msm8916-gexing-sp970v10.dts
++	msm8916-gexing-sp970v11.dts
++	msm8916-thwc-jz02v10.dts
++	msm8916-thwc-qrzl903.dts
++	msm8916-thwc-ufi001b.dts
++	msm8916-thwc-ufi003.dts
++	msm8916-thwc-ufi103s.dts
++	msm8916-thwc-w001.dts
++	msm8916-ufi-mf32.dts
++	msm8916-xinxun-wf2.dts
++	msm8916-fy-mf800.dtb
++	msm8916-jz01-45-v33.dtb
+@@ -57,0 +77,8 @@
++	if [ "$_carch" = "arm64" ]; then
++		_dtsdir="arch/arm64/boot/dts/qcom"
++		install -m644 "$srcdir"/msm8916-*.dts "$srcdir"/msm8916-*.dtsi "$_dtsdir"/
++		while IFS= read -r _dtb; do
++			[ -n "$_dtb" ] || continue
++			printf 'dtb-$(CONFIG_ARCH_QCOM)\t+= %s\n' "$_dtb" >> "$_dtsdir"/Makefile
++		done < "$srcdir"/openstick-dtbs.list
++	fi
+@@ -96,0 +124,6 @@
++	if [ "$_carch" = "arm64" ]; then
++		install -Dm644 "$srcdir"/msm8916-fy-mf800.dtb \
++			"$pkgdir"/boot/dtbs/qcom/msm8916-fy-mf800.dtb
++		install -Dm644 "$srcdir"/msm8916-jz01-45-v33.dtb \
++			"$pkgdir"/boot/dtbs/qcom/msm8916-jz01-45-v33.dtb
++	fi

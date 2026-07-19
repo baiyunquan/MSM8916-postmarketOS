@@ -1,0 +1,22 @@
+--- a/msm8916-sp970.dtsi
++++ b/msm8916-sp970.dtsi
+@@ -75,3 +74,0 @@
+-	pinctrl-0 = <&blsp_uart2_console_default>;
+-	pinctrl-1 = <&blsp_uart2_console_sleep>;
+-	pinctrl-names = "default", "sleep";
+--- a/msm8916-mifi.dtsi
++++ b/msm8916-mifi.dtsi
+@@ -67 +67 @@
+-		id-gpio = <&tlmm 110 GPIO_ACTIVE_HIGH>;
++		id-gpios = <&tlmm 110 GPIO_ACTIVE_HIGH>;
+--- a/msm8916-ufi-mf32.dts
++++ b/msm8916-ufi-mf32.dts
+@@ -69 +69 @@
+-&leds {
++&{/leds} {
+@@ -142 +142 @@
+-	extcon = <&pm8916_charger>, <&usb_id>;
++	extcon = <&pm8916_usbin>;
+@@ -146 +146 @@
+-	extcon = <&pm8916_charger>;
++	extcon = <&pm8916_usbin>;

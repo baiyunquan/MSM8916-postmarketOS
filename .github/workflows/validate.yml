@@ -1,0 +1,64 @@
+name: Validate device trees
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  KERNEL_TAG: v6.12.1-msm8916
+  PMAPORTS_REV: 6fb3a1e5eb21c809891645a2ba5ae11fa788e032
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install validation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bison \
+            build-essential \
+            device-tree-compiler \
+            flex \
+            git \
+            shellcheck
+
+      - name: Validate repository scripts and manifests
+        run: |
+          shellcheck scripts/*.sh
+          for script in scripts/*.sh; do bash -n "$script"; done
+          test "$(grep -cv '^#' config/boards.conf)" -eq 19
+          test "$(cut -d '|' -f1 config/boards.conf | grep -v '^#' | sort -u | wc -l)" -eq 19
+          test "$(grep -c '.dtb$' config/openstick-dtbs.list)" -eq 14
+          git diff --check
+
+      - name: Verify pmaports overlay applies to the pinned revision
+        run: |
+          git clone --filter=blob:none https://gitlab.postmarketos.org/postmarketOS/pmaports.git /tmp/pmaports
+          git -C /tmp/pmaports checkout "$PMAPORTS_REV"
+          scripts/prepare-pmaports.sh /tmp/pmaports
+          grep -Fq 'pkgrel=7' /tmp/pmaports/device/testing/linux-postmarketos-qcom-msm8916/APKBUILD
+
+      - name: Compile and inspect all 19 DTBs
+        run: |
+          git clone --depth=1 --branch "$KERNEL_TAG" --single-branch \
+            https://github.com/msm8916-mainline/linux.git /tmp/linux-msm8916
+          scripts/validate-dtbs.sh /tmp/linux-msm8916 /tmp/validated-dtbs
+          test "$(find /tmp/validated-dtbs -maxdepth 1 -type f -name '*.dtb' | wc -l)" -eq 19
+
+      - name: Upload validated DTBs
+        uses: actions/upload-artifact@v4
+        with:
+          name: validated-msm8916-dtbs
+          path: /tmp/validated-dtbs/*.dtb
+          retention-days: 14

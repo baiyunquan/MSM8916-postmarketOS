@@ -1,0 +1,188 @@
+name: Build postmarketOS multi-board image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PMB_WORK: /home/runner/pmbootstrap-work
+  PMB_APORTS: /home/runner/pmaports
+  PMB_EXPORT: /tmp/postmarketOS-export
+  PMBOOTSTRAP_REV: ce76febabd983db6445fa9a8b75d601970b2f436
+  PMAPORTS_REV: 6fb3a1e5eb21c809891645a2ba5ae11fa788e032
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binfmt-support \
+            bison \
+            btrfs-progs \
+            build-essential \
+            device-tree-compiler \
+            e2fsprogs \
+            flex \
+            gcc-arm-none-eabi \
+            binutils-aarch64-linux-gnu \
+            git \
+            kpartx \
+            libfdt-dev \
+            multipath-tools \
+            openssl \
+            parted \
+            python3 \
+            python3-cryptography \
+            qemu-user-static \
+            rsync \
+            shellcheck \
+            tar \
+            unzip \
+            util-linux \
+            wget
+
+      - name: Validate scripts and manifests
+        run: |
+          shellcheck scripts/*.sh
+          for script in scripts/*.sh; do bash -n "$script"; done
+          test "$(grep -cv '^#' config/boards.conf)" -eq 19
+          test "$(grep -c '.dtb$' config/openstick-dtbs.list)" -eq 14
+
+      - name: Clone pinned pmbootstrap and pmaports
+        run: |
+          git clone https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git "$HOME/pmbootstrap"
+          git -C "$HOME/pmbootstrap" checkout "$PMBOOTSTRAP_REV"
+          git clone --filter=blob:none https://gitlab.postmarketos.org/postmarketOS/pmaports.git "$PMB_APORTS"
+          git -C "$PMB_APORTS" checkout "$PMAPORTS_REV"
+          mkdir -p "$HOME/.local/bin" "$HOME/.config"
+          ln -sf "$HOME/pmbootstrap/pmbootstrap.py" "$HOME/.local/bin/pmbootstrap"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Add the 19-board kernel overlay
+        run: scripts/prepare-pmaports.sh "$PMB_APORTS"
+
+      - name: Configure pmbootstrap
+        run: |
+          mkdir -p "$PMB_WORK"
+          printf '8\n' > "$PMB_WORK/version"
+          cat > "$HOME/.config/pmbootstrap_v3.cfg" <<EOF
+          [pmbootstrap]
+          aports = $PMB_APORTS
+          boot_size = 512
+          build_default_device_arch = True
+          build_pkgs_on_install = True
+          ccache_size = 5G
+          device = zhihe-generic
+          extra_packages = device-zhihe-generic-nonfree-firmware,soc-qcom-msm8916-rproc,qmi-utils,qrtr,modemmanager,iw,wpa_supplicant,wireless-regdb
+          hostname = msm8916-pmos
+          is_default_channel = False
+          jobs = 4
+          kernel = ufi001c
+          locale = C.UTF-8
+          ssh_keys = False
+          sudo_timer = False
+          timezone = Asia/Shanghai
+          ui = console
+          user = user
+          work = $PMB_WORK
+
+          [providers]
+
+          [mirrors]
+          EOF
+          sed -i 's/^          //' "$HOME/.config/pmbootstrap_v3.cfg"
+          pmbootstrap --version
+          pmbootstrap config device
+          pmbootstrap config kernel
+          pmbootstrap config ui
+          pmbootstrap config extra_packages
+
+      - name: Checksum and build the patched kernel package
+        run: |
+          pmbootstrap checksum linux-postmarketos-qcom-msm8916
+          pmbootstrap build --arch aarch64 --force linux-postmarketos-qcom-msm8916
+
+      - name: Build split postmarketOS image
+        run: |
+          pmbootstrap install --split --filesystem btrfs --password 147147
+          pmbootstrap export
+
+      - name: Build bootloader artifacts
+        run: |
+          mkdir -p artifacts/bootloaders
+          scripts/build-bootloaders.sh artifacts/bootloaders
+          wget -q -O /tmp/db410c_fw.zip \
+            'https://builds.96boards.org/dragonboard410c/linaro/rescue/17.09/dragonboard410c_bootloader_emmc_android-88.zip'
+          unzip -o -j -d /tmp/db410c_fw /tmp/db410c_fw.zip 'tz.mbn'
+          cp /tmp/db410c_fw/tz.mbn artifacts/bootloaders/tz.mbn
+
+      - name: Configure and verify the multi-board boot image
+        run: |
+          mkdir -p artifacts/dtbs
+          scripts/configure-multiboard-boot.sh \
+            "$PMB_EXPORT/zhihe-generic-boot.img" artifacts/dtbs
+
+      - name: Collect and verify release files
+        run: |
+          mkdir -p artifacts/export
+          cp config/boards.conf artifacts/boards.conf
+          cp "$HOME/.config/pmbootstrap_v3.cfg" artifacts/pmbootstrap_v3.cfg
+          pmbootstrap status > artifacts/pmbootstrap-status.txt
+          while IFS= read -r path; do
+            rel="${path#$PMB_EXPORT/}"
+            mkdir -p "artifacts/export/$(dirname "$rel")"
+            cp -L "$path" "artifacts/export/$rel"
+          done < <(find "$PMB_EXPORT" -xtype f | sort)
+          {
+            echo "root=$(git rev-parse HEAD)"
+            echo "pmos-example=$(git -C pmos-example rev-parse HEAD)"
+            echo "debian-dtbs=$(git -C debian-dtbs rev-parse HEAD)"
+            echo "pmbootstrap=$PMBOOTSTRAP_REV"
+            echo "pmaports=$PMAPORTS_REV"
+          } > artifacts/source-versions.txt
+          (
+            cd artifacts
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+          test "$(find artifacts/dtbs -maxdepth 1 -type f -name '*.dtb' | wc -l)" -eq 19
+          tar -C artifacts -czf postmarketos-msm8916-multiboard.tar.gz .
+          tar -tzf postmarketos-msm8916-multiboard.tar.gz | grep -Fq './export/zhihe-generic-boot.img'
+          tar -tzf postmarketos-msm8916-multiboard.tar.gz | grep -Fq './export/zhihe-generic-root.img'
+
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: postmarketos-msm8916-multiboard
+          path: postmarketos-msm8916-multiboard.tar.gz
+          retention-days: 90
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: multiboard-${{ github.run_number }}
+          name: "postmarketOS MSM8916 multi-board #${{ github.run_number }}"
+          body: |
+            One split postmarketOS image containing all 19 supported MSM8916 DTBs.
+
+            The default is `msm8916-thwc-ufi001c.dtb`. Mount the boot image and edit
+            `/extlinux/extlinux.conf`, or edit `/boot/extlinux/extlinux.conf` after
+            installation, to select another file listed in `boards.conf`.
+
+            CI verifies DTB compilation/structure and image contents. Hardware boot
+            and peripheral behavior remain board-owner validation tasks.
+          files: postmarketos-msm8916-multiboard.tar.gz
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: true
