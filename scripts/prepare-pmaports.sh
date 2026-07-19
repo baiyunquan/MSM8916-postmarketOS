@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 pmaports=${1:?Usage: prepare-pmaports.sh <pmaports-directory>}
-expected_revision=${PMAPORTS_REV:-6fb3a1e5eb21c809891645a2ba5ae11fa788e032}
+expected_revision=${PMAPORTS_REV:-1ce58c5ae1b7573c6471959c4ab406391eefb103}
 package_dir="$pmaports/device/testing/linux-postmarketos-qcom-msm8916"
 
 actual_revision=$(git -C "$pmaports" rev-parse HEAD)

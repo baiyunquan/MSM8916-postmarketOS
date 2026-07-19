@@ -10,8 +10,8 @@ env:
   PMB_WORK: /home/runner/pmbootstrap-work
   PMB_APORTS: /home/runner/pmaports
   PMB_EXPORT: /tmp/postmarketOS-export
-  PMBOOTSTRAP_REV: ce76febabd983db6445fa9a8b75d601970b2f436
-  PMAPORTS_REV: 6fb3a1e5eb21c809891645a2ba5ae11fa788e032
+  PMBOOTSTRAP_REV: b2bf3539cd92acce4ab187167581168e845f3e7e
+  PMAPORTS_REV: 1ce58c5ae1b7573c6471959c4ab406391eefb103
 
 jobs:
   build:
@@ -115,8 +115,20 @@ jobs:
 
       - name: Build split postmarketOS image
         run: |
-          pmbootstrap install --split --filesystem btrfs --password 147147
+          if ! pmbootstrap install --split --filesystem btrfs --password 147147; then
+            pmbootstrap log || true
+            exit 1
+          fi
           pmbootstrap export
+
+      - name: Upload pmbootstrap failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmbootstrap-failure-log
+          path: ${{ env.PMB_WORK }}/log.txt
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build bootloader artifacts
         run: |

@@ -10,7 +10,7 @@ permissions:
 
 env:
   KERNEL_TAG: v6.12.1-msm8916
-  PMAPORTS_REV: 6fb3a1e5eb21c809891645a2ba5ae11fa788e032
+  PMAPORTS_REV: 1ce58c5ae1b7573c6471959c4ab406391eefb103
 
 jobs:
   validate:

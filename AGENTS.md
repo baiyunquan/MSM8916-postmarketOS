@@ -23,8 +23,8 @@ hardware boot or peripheral support without evidence from a physical board.
 
 ## Fixed upstream contract
 
-- pmbootstrap: `ce76febabd983db6445fa9a8b75d601970b2f436`
-- pmaports: `6fb3a1e5eb21c809891645a2ba5ae11fa788e032`
+- pmbootstrap: `b2bf3539cd92acce4ab187167581168e845f3e7e`
+- pmaports: `1ce58c5ae1b7573c6471959c4ab406391eefb103`
 - kernel tag: `v6.12.1-msm8916`
 - pmOS reference: `fe4289d03aaf95fd2325e81b12ff02b55b70e868`
 - Debian DT reference: `ef731fa31eefdf5730f87e31d9aecafe61159ed2`
