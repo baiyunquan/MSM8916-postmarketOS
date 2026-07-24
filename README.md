@@ -129,6 +129,37 @@ sudo umount /mnt/pmos-boot
 
 ## 本地验证
 
+### Docker Ubuntu 22.04 持久化 Runner
+
+本仓库的完整镜像构建可以在 Debian 13 宿主机上的 Ubuntu 22.04 Docker
+runner 中执行。runner 配置位于宿主机 `/mnt/raid0/runner/docker`，构建缓存和
+pmbootstrap 工作目录持久化到 `/var/lib/msm8916-pmos`。
+
+runner 使用 host 网络模式，通过 mihomo 的混合代理
+`127.0.0.1:7890` 加速 GitHub、GitLab、APT 和 pmbootstrap 下载；控制 API
+`127.0.0.1:9090` 仅用于检查代理状态。由于 pmbootstrap 需要 loop 设备和镜像
+挂载，容器使用专用的 `privileged` 权限，只应分配给可信的 MSM8916 仓库。
+
+首次部署时，参照宿主机 `/mnt/raid0/runner/docker/README.md` 配置仓库级 runner
+token，然后执行：
+
+```sh
+cd /mnt/raid0/runner/docker
+cp .env.example .env
+chmod 600 .env
+$EDITOR .env
+docker compose --env-file .env build
+docker compose --env-file .env up -d
+```
+
+workflow 使用 `ubuntu-22.04`、`msm8916` 和 `docker` 标签；在 GitHub Actions
+页面手动触发 `Build postmarketOS multi-board image` 即可。首次成功注册后应从
+`.env` 删除 `RUNNER_TOKEN`。runner 状态和构建缓存会在 Docker 或宿主机重启后
+保留。构建失败时不会删除 pmbootstrap 工作目录、pmaports、export 或
+`artifacts`；失败诊断会额外保存到
+`/var/lib/msm8916-pmos/failures/<run-id>`，并上传为 Actions Artifact，便于在
+本地继续分析现场。
+
 Ubuntu/WSL 中可对固定内核源码执行全部 DTB 编译检查：
 
 ```sh

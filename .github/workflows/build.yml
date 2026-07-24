@@ -7,16 +7,20 @@ permissions:
   contents: write
 
 env:
-  PMB_WORK: /home/runner/pmbootstrap-work
-  PMB_APORTS: /home/runner/pmaports
-  PMB_EXPORT: /tmp/postmarketOS-export
+  PMB_WORK: /var/lib/msm8916-pmos/pmbootstrap-work
+  PMB_APORTS: /var/lib/msm8916-pmos/pmaports
+  PMB_EXPORT: /var/lib/msm8916-pmos/export
   PMBOOTSTRAP_REV: b2bf3539cd92acce4ab187167581168e845f3e7e
   PMAPORTS_REV: 1ce58c5ae1b7573c6471959c4ab406391eefb103
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux, x64, ubuntu-22.04, msm8916, docker]
     timeout-minutes: 360
+
+    concurrency:
+      group: msm8916-postmarketos-build
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -25,32 +29,18 @@ jobs:
 
       - name: Install host dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            binfmt-support \
-            bison \
-            btrfs-progs \
-            build-essential \
-            device-tree-compiler \
-            e2fsprogs \
-            flex \
-            gcc-arm-none-eabi \
-            binutils-aarch64-linux-gnu \
-            git \
-            kpartx \
-            libfdt-dev \
-            multipath-tools \
-            openssl \
-            parted \
-            python3 \
-            python3-cryptography \
-            qemu-user-static \
-            rsync \
-            shellcheck \
-            tar \
-            unzip \
-            util-linux \
-            wget
+          test "$(. /etc/os-release && echo "$VERSION_ID")" = "22.04"
+          for command in \
+            bash git patch shellcheck dtc debugfs mkfs.ext2 mkfs.btrfs \
+            qemu-aarch64-static aarch64-linux-gnu-ld arm-none-eabi-gcc \
+            python3 rsync tar unzip wget; do
+            command -v "$command" >/dev/null || {
+              echo "Missing required command: $command" >&2
+              exit 1
+            }
+          done
+          python3 -c 'import cryptography'
+          test "$(id -u)" -eq 0
 
       - name: Validate scripts and manifests
         run: |
@@ -61,16 +51,31 @@ jobs:
 
       - name: Clone pinned pmbootstrap and pmaports
         run: |
-          git clone https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git "$HOME/pmbootstrap"
+          if [ -d "$HOME/pmbootstrap/.git" ]; then
+            echo "Reusing persistent pmbootstrap checkout at $HOME/pmbootstrap"
+          else
+            git clone https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git "$HOME/pmbootstrap"
+          fi
           git -C "$HOME/pmbootstrap" checkout "$PMBOOTSTRAP_REV"
-          git clone --filter=blob:none https://gitlab.postmarketos.org/postmarketOS/pmaports.git "$PMB_APORTS"
+          if [ -d "$PMB_APORTS/.git" ]; then
+            echo "Reusing persistent pmaports checkout at $PMB_APORTS"
+          else
+            git clone --filter=blob:none https://gitlab.postmarketos.org/postmarketOS/pmaports.git "$PMB_APORTS"
+          fi
           git -C "$PMB_APORTS" checkout "$PMAPORTS_REV"
           mkdir -p "$HOME/.local/bin" "$HOME/.config"
           ln -sf "$HOME/pmbootstrap/pmbootstrap.py" "$HOME/.local/bin/pmbootstrap"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Add the 19-board kernel overlay
-        run: scripts/prepare-pmaports.sh "$PMB_APORTS"
+        run: |
+          marker="$PMB_APORTS/.msm8916-multiboard-prepared"
+          if [ -f "$marker" ]; then
+            echo "Reusing previously prepared pmaports overlay"
+          else
+            scripts/prepare-pmaports.sh "$PMB_APORTS"
+            date -u +%FT%TZ > "$marker"
+          fi
 
       - name: Configure pmbootstrap
         run: |
@@ -198,3 +203,41 @@ jobs:
           fail_on_unmatched_files: true
           draft: false
           prerelease: true
+
+      - name: Preserve failed build state
+        if: ${{ failure() }}
+        env:
+          FAILURE_DIR: /var/lib/msm8916-pmos/failures/${{ github.run_id }}
+        run: |
+          mkdir -p "$FAILURE_DIR"
+          {
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "sha=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            date -u +%FT%TZ
+          } > "$FAILURE_DIR/run-metadata.txt"
+          git status --short > "$FAILURE_DIR/git-status.txt" || true
+          git rev-parse HEAD > "$FAILURE_DIR/repository-revision.txt" || true
+          pmbootstrap status > "$FAILURE_DIR/pmbootstrap-status.txt" || true
+          cp -a "$HOME/.config/pmbootstrap_v3.cfg" "$FAILURE_DIR/" 2>/dev/null || true
+          cp -a "$PMB_WORK/log.txt" "$FAILURE_DIR/" 2>/dev/null || true
+          printf '%s\n' \
+            "Original build state was intentionally retained:" \
+            "  PMB_WORK=$PMB_WORK" \
+            "  PMB_APORTS=$PMB_APORTS" \
+            "  PMB_EXPORT=$PMB_EXPORT" \
+            "  workspace=$GITHUB_WORKSPACE" > "$FAILURE_DIR/README.txt"
+
+      - name: Upload failed build diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: msm8916-failure-${{ github.run_id }}
+          path: |
+            /var/lib/msm8916-pmos/failures/${{ github.run_id }}
+            ${{ env.PMB_WORK }}/log.txt
+            artifacts
+          if-no-files-found: warn
+          retention-days: 30
