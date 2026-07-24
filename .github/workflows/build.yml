@@ -32,14 +32,19 @@ jobs:
           test "$(. /etc/os-release && echo "$VERSION_ID")" = "22.04"
           for command in \
             bash git patch shellcheck dtc debugfs mkfs.ext2 mkfs.btrfs \
-            qemu-aarch64-static aarch64-linux-gnu-ld arm-none-eabi-gcc \
+            qemu-aarch64-static aarch64-linux-gnu-ld arm-none-eabi-gcc apt-get \
             python3 rsync tar unzip wget; do
             command -v "$command" >/dev/null || {
               echo "Missing required command: $command" >&2
               exit 1
             }
           done
+          if ! python3 -c 'import tomli' 2>/dev/null; then
+            apt-get update
+            apt-get install -y --no-install-recommends python3-tomli
+          fi
           python3 -c 'import cryptography'
+          python3 -c 'import tomli'
           test "$(id -u)" -eq 0
 
       - name: Validate scripts and manifests
