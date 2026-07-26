@@ -129,6 +129,10 @@ sudo umount /mnt/pmos-boot
 
 ## 本地验证
 
+镜像构建只在 GitHub 托管的 `ubuntu-24.04` runner 上执行，手动触发
+`Build postmarketOS multi-board image` 即可。必须是 24.04：22.04 自带的
+qemu-user-static 6.2 会让 aarch64 的 `mkinitfs` 在 binfmt 模拟下崩溃。
+
 Ubuntu/WSL 中可对固定内核源码执行全部 DTB 编译检查：
 
 ```sh
