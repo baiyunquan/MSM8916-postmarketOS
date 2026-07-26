@@ -33,6 +33,51 @@ Changing a pin requires reapplying the pmaports overlay, compiling all 19
 DTBs, rebuilding the full image, and updating README provenance. Never make a
 workflow clone a moving upstream branch.
 
+## Build environment constraints
+
+These are load-bearing; all three were paid for with failed builds.
+
+- **QEMU must be >= 8.** The aarch64 rootfs is assembled under qemu-user
+  emulation, and the 6.2 series shipped by Ubuntu 22.04 crashes the aarch64 Go
+  binary of `postmarketos-mkinitfs` with a runtime dump. Keep the workflow on
+  `ubuntu-24.04`; `scripts/build-local.sh` checks the interpreter that
+  binfmt_misc actually registered.
+- **Never call `pmbootstrap log` in an unattended build.** It runs `tail -F`
+  and never returns. Dump `tail -n 500 "$PMB_WORK/log.txt"` instead, and keep
+  the failure-artifact upload on `!success()` so a timed-out job still yields
+  the log.
+- **Retry the kernel source fetch.** `abuild checksum` pulls the pinned tarball
+  through busybox wget inside the chroot with no retry; a transient DNS failure
+  on `codeload.github.com` is enough to fail the run.
+
+Do not hardcode values that can be read from an authoritative source:
+`$PMB_WORK/version` comes from `pmb.config.work_version`, and upstream
+subpackages such as `device-zhihe-generic-nonfree-firmware` must not appear in
+`extra_packages` because `get_nonfree_packages()` discovers them from the
+APKBUILD.
+
+## Pinned source vs rolling binaries
+
+Only the kernel is built locally; every other package comes from the rolling
+edge mirror. The pmaports pin therefore describes *metadata* that the mirror has
+already moved past, and pmbootstrap logs `about to install X (local pmaports:
+Y)` for each drift. That is tolerable for version skew but fatal when a package
+name disappears, because pmbootstrap reads the pinned APKBUILD to decide what to
+request. `patches/pmaports-device-zhihe-nonfree.patch` reconciles exactly one
+such case (upstream `e5536561` deleted the `-nonfree-firmware` subpackage).
+
+Expect this class of break to recur. When it does, resolve the package closure
+offline against the live APKINDEXes before touching anything — it takes seconds
+and proves both the culprit and the absence of a second one. The procedure is in
+`pmos-example/SKILLS.md` §3.
+
+## Build entry points
+
+- `.github/workflows/build.yml` is the only CI build path, GitHub-hosted.
+- `scripts/build-local.sh` mirrors it step for step on a local x86_64 host.
+  Keep the two in sync: a change to the package set, config, or verification
+  in one belongs in the other.
+
 ## Device-tree porting rules
 
 - Reuse the kernel-native `msm8916-ufi.dtsi`; do not stage the older copy from

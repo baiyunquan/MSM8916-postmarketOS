@@ -1,0 +1,34 @@
+--- a/device/testing/device-zhihe-generic/APKBUILD
++++ b/device/testing/device-zhihe-generic/APKBUILD
+@@ -12,7 +12,9 @@
+ options="!check !archcheck"
+ provides="device-generic-zhihe=$pkgver-r$pkgrel"
+ depends="
++	firmware-qcom-msm8916-venus
+ 	mkbootimg
++	msm-firmware-loader
+ 	postmarketos-base
+ 	soc-qcom-msm8916
+ 	soc-qcom-msm8916-rproc
+@@ -20,7 +22,6 @@
+ makedepends="devicepkg-dev"
+ source="deviceinfo kernel-cmdline.conf"
+ subpackages="
+-	$pkgname-nonfree-firmware:nonfree_firmware
+ 	$pkgname-kernel-ufi001c:kernel_ufi001c
+ 	$pkgname-kernel-uf896:kernel_uf896
+ 	$pkgname-kernel-uz801:kernel_uz801
+@@ -34,13 +35,6 @@
+ 	devicepkg_package $startdir $pkgname
+ }
+ 
+-nonfree_firmware() {
+-	pkgdesc="WiFi/BT/Modem/Video firmware"
+-	depends="msm-firmware-loader
+-		 firmware-qcom-msm8916-venus"
+-	mkdir "$subpkgdir"
+-}
+-
+ kernel_ufi001c() {
+ 	pkgdesc="UFI103S / UFI-001C(B) / UFI003"
+ 	depends="linux-postmarketos-qcom-msm8916"

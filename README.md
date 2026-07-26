@@ -21,6 +21,12 @@ LED、按键、屏幕或充电功能验证。
   `v6.12.1-msm8916` 中的原生设备树。
 - SP970 的旧 UART pinctrl 引用、MiFi 的 `id-gpios` 属性和 MF32 的 LED/USB
   引用在 staging 时通过最小兼容补丁适配到该内核标签；参考 submodule 不被修改。
+- `patches/pmaports-device-zhihe-nonfree.patch` 把固定版 pmaports 里
+  `device-zhihe-generic` 的元数据对齐到上游 `e5536561`。只有内核在本地编译，其余
+  包都来自滚动的 edge 二进制镜像，而 pmbootstrap 依据本地 APKBUILD 决定要装哪些
+  包；上游删掉 `-nonfree-firmware` 子包后，不打这个补丁 apk 就会因为镜像里已经
+  没有该包而报 `unable to select packages`。两个固件包已被上游提升为主包依赖，
+  功能不受影响。
 
 构建固定使用以下上游版本，避免 GitHub Actions 每次跟随上游 `main` 漂移：
 
@@ -62,7 +68,9 @@ LED、按键、屏幕或充电功能验证。
 ## 构建与发布
 
 在 GitHub 仓库的 **Actions → Build postmarketOS multi-board image → Run
-workflow** 手动触发完整构建。工作流会：
+workflow** 手动触发完整构建，runner 固定为 `ubuntu-24.04`（原因见
+[本地 x86 构建](#本地-x86-构建)）。同一套流程也可以用
+`scripts/build-local.sh` 在本地跑。工作流会：
 
 1. 检出所有固定 submodule；
 2. 为 pmaports 内核包加入 19 款 DTB 并从源码重建内核；
@@ -127,11 +135,62 @@ sudo umount /mnt/pmos-boot
 分区，把转换为 Android sparse 格式的 root 镜像写入 system 或 userdata。具体分区
 因设备而异，仓库不会自动执行刷写。
 
-## 本地验证
+## 本地 x86 构建
 
-镜像构建只在 GitHub 托管的 `ubuntu-24.04` runner 上执行，手动触发
-`Build postmarketOS multi-board image` 即可。必须是 24.04：22.04 自带的
-qemu-user-static 6.2 会让 aarch64 的 `mkinitfs` 在 binfmt 模拟下崩溃。
+`scripts/build-local.sh` 在本地 x86_64 主机上复刻整条 CI 流程：同样的固定上游、
+同样的步骤顺序、同样的产物，aarch64 rootfs 通过 qemu-user-static 模拟组装。
+
+### 主机要求
+
+**QEMU 必须 ≥ 8。** Ubuntu 22.04 自带的 qemu-user-static 6.2 会让 aarch64 的
+`postmarketos-mkinitfs`（Go 二进制）在 binfmt 模拟下直接崩溃，这正是托管 CI 长期
+构建失败的原因。Debian 13 和 Ubuntu 24.04 均满足要求。脚本会读取 binfmt_misc
+实际注册的解释器并校验版本，而不是看 `PATH` 里恰好排在前面的那个。
+
+以普通用户运行，需要 sudo 权限；pmbootstrap 拒绝以 root 身份运行。
+
+```sh
+sudo apt-get install -y \
+  binfmt-support binutils-aarch64-linux-gnu btrfs-progs build-essential \
+  device-tree-compiler e2fsprogs gcc-arm-none-eabi git kpartx multipath-tools \
+  openssl parted python3 python3-cryptography qemu-user-static rsync tar unzip \
+  util-linux
+```
+
+### 运行
+
+```sh
+scripts/build-local.sh              # 产物写入 ./artifacts
+scripts/build-local.sh /srv/out     # 或指定输出目录
+```
+
+可用环境变量：
+
+| 变量 | 默认值 | 用途 |
+|---|---|---|
+| `MSM8916_STATE_DIR` | `~/.cache/msm8916-pmos` | pmbootstrap 源码、pmaports、work 目录与 export 的存放位置 |
+| `JOBS` | `nproc` | 编译并行度 |
+| `PMB_WORK` / `PMB_APORTS` / `PMB_EXPORT` | 见上 | 单独覆盖某个路径 |
+| `PMBOOTSTRAP_REV` / `PMAPORTS_REV` | 见「设计与来源」 | 仅在有评审的依赖升级时覆盖 |
+
+state 目录可复用以省去重复下载，脚本每次都会把 pmbootstrap 和 pmaports 强制
+重置回固定版本再重新应用 overlay，所以复用不会造成状态漂移。删除该目录即可完全
+重来。
+
+首次完整构建的主要耗时在内核编译（CI 上约 35–55 分钟）。
+
+### 失败时怎么看日志
+
+pmbootstrap 只把摘要打到终端，真正的错误写在 `$PMB_WORK/log.txt`。脚本失败时会
+自动打印崩溃行和最后 500 行。
+
+**不要用 `pmbootstrap log`**：它的实现是 `tail -F`，永远不会返回。CI 上曾因此白白
+挂死两个完整的 6 小时任务。
+
+内核源码 tarball 由 chroot 内的 busybox wget 从 github.com 拉取且不会重试，脚本已
+对这一步加了 3 次重试——`codeload.github.com` 的偶发 DNS 失败曾直接打断一次构建。
+
+## 设备树验证
 
 Ubuntu/WSL 中可对固定内核源码执行全部 DTB 编译检查：
 
@@ -141,8 +200,8 @@ git clone --depth=1 --branch v6.12.1-msm8916 \
 bash scripts/validate-dtbs.sh /tmp/linux-msm8916 /tmp/validated-dtbs
 ```
 
-完整镜像构建建议使用仓库 workflow；它还会验证 ext2 boot 镜像内部的 DTB 数量、
-`compatible`、extlinux 路径以及发布包校验和。
+完整镜像构建请用 `scripts/build-local.sh` 或仓库 workflow；两者都会额外验证 ext2
+boot 镜像内部的 DTB 数量、`compatible`、extlinux 路径以及发布包校验和。
 
 ## 许可证
 
