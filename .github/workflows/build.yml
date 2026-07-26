@@ -15,11 +15,15 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 360
+    # ubuntu-22.04 ships qemu-user-static 6.2, which crashes the aarch64 Go
+    # binary of postmarketos-mkinitfs under binfmt emulation. 24.04 ships 8.2.
+    runs-on: ubuntu-24.04
+    # Stay below the 6h hard limit so a hang fails the job while the failure
+    # diagnostics steps can still run.
+    timeout-minutes: 180
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -75,7 +79,8 @@ jobs:
       - name: Configure pmbootstrap
         run: |
           mkdir -p "$PMB_WORK"
-          printf '8\n' > "$PMB_WORK/version"
+          PYTHONPATH="$HOME/pmbootstrap" python3 -c \
+            'import pmb.config; print(pmb.config.work_version)' > "$PMB_WORK/version"
           cat > "$HOME/.config/pmbootstrap_v3.cfg" <<EOF
           [pmbootstrap]
           aports = $PMB_APORTS
@@ -84,7 +89,7 @@ jobs:
           build_pkgs_on_install = True
           ccache_size = 5G
           device = zhihe-generic
-          extra_packages = device-zhihe-generic-nonfree-firmware,soc-qcom-msm8916-rproc,qmi-utils,qrtr,modemmanager,iw,wpa_supplicant,wireless-regdb
+          extra_packages = soc-qcom-msm8916-rproc,qmi-utils,qrtr,modemmanager,iw,wpa_supplicant,wireless-regdb
           hostname = msm8916-pmos
           is_default_channel = False
           jobs = 4
@@ -115,15 +120,22 @@ jobs:
 
       - name: Build split postmarketOS image
         run: |
+          # Never use "pmbootstrap log" here: it runs "tail -F" and blocks
+          # forever, which burned two full 6h CI jobs.
           if ! pmbootstrap install --split --filesystem btrfs --password 147147; then
-            pmbootstrap log || true
+            echo "==== first crash/panic line in log.txt ===="
+            grep -nE '^(panic|fatal error|runtime:|ERROR)' "$PMB_WORK/log.txt" | head -n 20 || true
+            echo "==== pmbootstrap log.txt (last 500 lines) ===="
+            tail -n 500 "$PMB_WORK/log.txt" || true
             exit 1
           fi
           pmbootstrap export
 
       - name: Upload pmbootstrap failure log
-        if: failure()
-        uses: actions/upload-artifact@v4
+        # Not failure(): a job killed by the timeout is "cancelled", and this
+        # step was skipped exactly when the log was needed most.
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@v5
         with:
           name: pmbootstrap-failure-log
           path: ${{ env.PMB_WORK }}/log.txt
@@ -134,9 +146,10 @@ jobs:
         run: |
           mkdir -p artifacts/bootloaders
           scripts/build-bootloaders.sh artifacts/bootloaders
-          wget -q -O /tmp/db410c_fw.zip \
-            'https://raw.githubusercontent.com/baiyunquan/MSM8916-postmarketOS/refs/heads/main/temp/dragonboard410c_bootloader_emmc_android-88.zip'
-          unzip -o -j -d /tmp/db410c_fw /tmp/db410c_fw.zip 'tz.mbn'
+          echo '72494b6882f60cc1704f2970543adb91370d1ec75497c4f6510fc13a4e1378ee  temp/dragonboard410c_bootloader_emmc_android-88.zip' \
+            | sha256sum -c -
+          unzip -o -j -d /tmp/db410c_fw \
+            temp/dragonboard410c_bootloader_emmc_android-88.zip 'tz.mbn'
           cp /tmp/db410c_fw/tz.mbn artifacts/bootloaders/tz.mbn
 
       - name: Configure and verify the multi-board boot image
@@ -150,7 +163,7 @@ jobs:
           mkdir -p artifacts/export
           cp config/boards.conf artifacts/boards.conf
           cp "$HOME/.config/pmbootstrap_v3.cfg" artifacts/pmbootstrap_v3.cfg
-          pmbootstrap status > artifacts/pmbootstrap-status.txt
+          pmbootstrap status > artifacts/pmbootstrap-status.txt || true
           while IFS= read -r path; do
             rel="${path#$PMB_EXPORT/}"
             mkdir -p "artifacts/export/$(dirname "$rel")"
@@ -174,7 +187,7 @@ jobs:
           tar -tzf postmarketos-msm8916-multiboard.tar.gz | grep -Fq './export/zhihe-generic-root.img'
 
       - name: Upload Actions artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: postmarketos-msm8916-multiboard
           path: postmarketos-msm8916-multiboard.tar.gz
