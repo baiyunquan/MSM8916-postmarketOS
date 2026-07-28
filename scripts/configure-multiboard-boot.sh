@@ -7,8 +7,56 @@ dtb_output=${2:?Usage: configure-multiboard-boot.sh <boot-image> <dtb-output-dir
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT
 
-test -s "$boot_image"
 mkdir -p "$dtb_output"
+
+fail() {
+	echo "ERROR: $*" >&2
+	echo "Boot image root directory:" >&2
+	debugfs -R 'ls -l /' "$boot_image" >&2 || true
+	echo "Boot image /extlinux directory:" >&2
+	debugfs -R 'ls -l /extlinux' "$boot_image" >&2 || true
+	echo "Boot image /dtbs/qcom directory:" >&2
+	debugfs -R 'ls -l /dtbs/qcom' "$boot_image" >&2 || true
+	exit 1
+}
+
+debugfs_run() {
+	command=$1
+	if ! output=$(debugfs -R "$command" "$boot_image" 2>&1); then
+		printf '%s\n' "$output" >&2
+		fail "debugfs command failed: $command"
+	fi
+	case "$output" in
+		*'File not found'*|*'not found by ext2_lookup'*|*'Ext2 directory already exists'*)
+			printf '%s\n' "$output" >&2
+			fail "debugfs command failed: $command"
+			;;
+	esac
+}
+
+debugfs_write() {
+	command=$1
+	if ! output=$(debugfs -w -R "$command" "$boot_image" 2>&1); then
+		printf '%s\n' "$output" >&2
+		fail "debugfs write failed: $command"
+	fi
+	case "$output" in
+		*'File not found'*|*'not found by ext2_lookup'*)
+			printf '%s\n' "$output" >&2
+			fail "debugfs write failed: $command"
+			;;
+	esac
+}
+
+if [ ! -s "$boot_image" ]; then
+	echo "ERROR: boot image is missing or empty: $boot_image" >&2
+	exit 1
+fi
+if ! dumpe2fs -h "$boot_image" >"$work_dir/dumpe2fs.txt" 2>&1; then
+	cat "$work_dir/dumpe2fs.txt" >&2
+	echo "ERROR: boot image is not a readable ext2/3/4 filesystem: $boot_image" >&2
+	exit 1
+fi
 
 read_compatible() {
 	file=$1
@@ -20,40 +68,74 @@ read_compatible() {
 	fi
 }
 
-debugfs -R "dump /extlinux/extlinux.conf $work_dir/extlinux.conf" "$boot_image" >/dev/null 2>&1
-[ "$(grep -c '^[[:space:]]*fdt ' "$work_dir/extlinux.conf")" -eq 1 ]
-sed -E -i 's#^[[:space:]]*fdt .*$#\tfdt /dtbs/qcom/msm8916-thwc-ufi001c.dtb#' \
-	"$work_dir/extlinux.conf"
+debugfs_run 'stat /vmlinuz'
+debugfs_run 'stat /dtbs/qcom'
 
-debugfs -w -R 'rm /extlinux/extlinux.conf' "$boot_image" >/dev/null 2>&1
-debugfs -w -R "write $work_dir/extlinux.conf /extlinux/extlinux.conf" "$boot_image" >/dev/null 2>&1
-debugfs -w -R 'set_inode_field /extlinux/extlinux.conf mode 0100644' "$boot_image" >/dev/null 2>&1
+# Current edge packages do not guarantee that mkinitfs leaves an extlinux.conf
+# in the split boot image. Preserve any unrelated directives when a complete
+# config exists, but own the three boot-critical directives here. This mirrors
+# the known-good pmos-example config without hardcoding a filesystem UUID.
+if debugfs -R "dump /extlinux/extlinux.conf $work_dir/extlinux.conf" \
+	"$boot_image" >"$work_dir/extlinux-dump.txt" 2>&1 \
+		&& [ -s "$work_dir/extlinux.conf" ] \
+		&& grep -q '^[[:space:]]*linux[[:space:]]' "$work_dir/extlinux.conf" \
+		&& grep -q '^[[:space:]]*fdt[[:space:]]' "$work_dir/extlinux.conf" \
+		&& grep -q '^[[:space:]]*append[[:space:]]' "$work_dir/extlinux.conf"; then
+	sed -E -i \
+		-e '/^[[:space:]]*(linux|fdt|append)[[:space:]]/d' \
+		"$work_dir/extlinux.conf"
+else
+	: > "$work_dir/extlinux.conf"
+fi
+cat >> "$work_dir/extlinux.conf" <<'EOF'
+linux /vmlinuz
+fdt /dtbs/qcom/msm8916-thwc-ufi001c.dtb
+append earlycon root=LABEL=pmOS_root console=ttyMSM0,115200 no_framebuffer=true rw rootwait
+EOF
+
+if ! debugfs -R 'stat /extlinux' "$boot_image" >"$work_dir/extlinux-stat.txt" 2>&1 \
+		|| grep -Eq 'File not found|not found by ext2_lookup' "$work_dir/extlinux-stat.txt"; then
+	debugfs_write 'mkdir /extlinux'
+fi
+debugfs -w -R 'rm /extlinux/extlinux.conf' "$boot_image" >/dev/null 2>&1 || true
+debugfs_write "write $work_dir/extlinux.conf /extlinux/extlinux.conf"
+debugfs_write 'set_inode_field /extlinux/extlinux.conf mode 0100644'
 
 for item in boards.conf README-BOARD-SELECTION.txt; do
 	debugfs -w -R "rm /$item" "$boot_image" >/dev/null 2>&1 || true
 done
-debugfs -w -R "write $repo_root/config/boards.conf /boards.conf" "$boot_image" >/dev/null 2>&1
-debugfs -w -R "write $repo_root/config/BOOT-README.txt /README-BOARD-SELECTION.txt" \
-	"$boot_image" >/dev/null 2>&1
-debugfs -w -R 'set_inode_field /boards.conf mode 0100644' "$boot_image" >/dev/null 2>&1
-debugfs -w -R 'set_inode_field /README-BOARD-SELECTION.txt mode 0100644' \
-	"$boot_image" >/dev/null 2>&1
+debugfs_write "write $repo_root/config/boards.conf /boards.conf"
+debugfs_write "write $repo_root/config/BOOT-README.txt /README-BOARD-SELECTION.txt"
+debugfs_write 'set_inode_field /boards.conf mode 0100644'
+debugfs_write 'set_inode_field /README-BOARD-SELECTION.txt mode 0100644'
 
 while IFS='|' read -r board dtb _source compatible _display; do
 	case "$board" in ''|'#'*) continue ;; esac
 	output="$dtb_output/$dtb"
-	debugfs -R "dump /dtbs/qcom/$dtb $output" "$boot_image" >/dev/null 2>&1
-	test -s "$output" || { echo "Missing /dtbs/qcom/$dtb in $boot_image" >&2; exit 1; }
+	debugfs_run "dump /dtbs/qcom/$dtb $output"
+	test -s "$output" || fail "missing /dtbs/qcom/$dtb in $boot_image"
 	actual=$(read_compatible "$output")
 	[ "$actual" = "$compatible" ] || {
-		echo "$board compatible mismatch: expected $compatible, got $actual" >&2
-		exit 1
+		fail "$board compatible mismatch: expected $compatible, got $actual"
 	}
 done < "$repo_root/config/boards.conf"
 
-debugfs -R "dump /extlinux/extlinux.conf $work_dir/verify-extlinux.conf" \
-	"$boot_image" >/dev/null 2>&1
-grep -Fq 'fdt /dtbs/qcom/msm8916-thwc-ufi001c.dtb' "$work_dir/verify-extlinux.conf"
-[ "$(find "$dtb_output" -maxdepth 1 -type f -name '*.dtb' | wc -l)" -eq 19 ]
+debugfs_run "dump /extlinux/extlinux.conf $work_dir/verify-extlinux.conf"
+[ "$(grep -c '^[[:space:]]*linux ' "$work_dir/verify-extlinux.conf")" -eq 1 ] \
+	|| fail "extlinux.conf must contain exactly one linux directive"
+[ "$(grep -c '^[[:space:]]*fdt ' "$work_dir/verify-extlinux.conf")" -eq 1 ] \
+	|| fail "extlinux.conf must contain exactly one fdt directive"
+[ "$(grep -c '^[[:space:]]*append ' "$work_dir/verify-extlinux.conf")" -eq 1 ] \
+	|| fail "extlinux.conf must contain exactly one append directive"
+grep -Fq 'linux /vmlinuz' "$work_dir/verify-extlinux.conf" \
+	|| fail "extlinux.conf does not select /vmlinuz"
+grep -Fq 'fdt /dtbs/qcom/msm8916-thwc-ufi001c.dtb' "$work_dir/verify-extlinux.conf" \
+	|| fail "extlinux.conf does not select the default UFI001C DTB"
+grep -Fq 'root=LABEL=pmOS_root' "$work_dir/verify-extlinux.conf" \
+	|| fail "extlinux.conf does not select the split root filesystem label"
+debugfs_run 'stat /boards.conf'
+debugfs_run 'stat /README-BOARD-SELECTION.txt'
+[ "$(find "$dtb_output" -maxdepth 1 -type f -name '*.dtb' | wc -l)" -eq 19 ] \
+	|| fail "expected exactly 19 exported DTBs"
 
 echo "Configured multi-board boot image and exported 19 DTBs"

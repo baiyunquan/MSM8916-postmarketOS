@@ -184,6 +184,30 @@ state 目录可复用以省去重复下载，脚本每次都会把 pmbootstrap �
 pmbootstrap 只把摘要打到终端，真正的错误写在 `$PMB_WORK/log.txt`。脚本失败时会
 自动打印崩溃行和最后 500 行。
 
+#### 2026-07-26 完整构建失败复盘
+
+GitHub Actions run
+[`30212747772`](https://github.com/baiyunquan/MSM8916-postmarketOS/actions/runs/30212747772)
+在提交 `e36c8e5` 上完成了内核和 19 款 DTB 编译、split rootfs/boot 镜像生成以及
+bootloader 构建，最终失败在 **Configure and verify the multi-board boot image**。
+因此这一次并不是 QEMU/mkinitfs 崩溃、内核编译错误、已删除的 nonfree 子包或
+bootloader 构建错误。
+
+失败脚本当时假定 pmbootstrap 生成的 ext2 boot 镜像中一定已经存在
+`/extlinux/extlinux.conf`，且其中恰有一条 `fdt`；第一条 `debugfs`/配置检查失败后，
+脚本又把诊断输出重定向到了 `/dev/null`，Actions 日志最终只留下 `exit code 1`。
+本仓库现在像固定的 `pmos-example/configs/extlinux.conf` 一样显式管理这三个关键
+指令：`linux /vmlinuz`、默认 UFI001C `fdt` 和指向 `pmOS_root` 文件系统标签的
+`append`。配置缺失时会创建，存在时会规范化，并在写回后重新导出验证。
+
+这个问题也是“固定源码、滚动二进制”边界的另一种表现：该 run 使用固定 pmaports
+里的 `device-zhihe-generic 7-r0` 元数据，但 edge 镜像实际安装了 `8-r0`。版本漂移
+本身可以接受，不能再把滚动包生成某个 boot 文件的行为当成不变契约。仓库只依赖
+固定的内核源码构建结果，并对最终 boot 镜像需要的 extlinux 和 19 款 DTB 结构负责。
+
+这些检查只能证明 ext2 文件系统、extlinux 路径、root 参数、DTB 数量及 compatible
+映射在构件中正确，不能证明任何板型已经真机启动或外设可用。
+
 **不要用 `pmbootstrap log`**：它的实现是 `tail -F`，永远不会返回。CI 上曾因此白白
 挂死两个完整的 6 小时任务。
 
