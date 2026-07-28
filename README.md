@@ -193,12 +193,16 @@ bootloader 构建，最终失败在 **Configure and verify the multi-board boot 
 因此这一次并不是 QEMU/mkinitfs 崩溃、内核编译错误、已删除的 nonfree 子包或
 bootloader 构建错误。
 
-失败脚本当时假定 pmbootstrap 生成的 ext2 boot 镜像中一定已经存在
-`/extlinux/extlinux.conf`，且其中恰有一条 `fdt`；第一条 `debugfs`/配置检查失败后，
-脚本又把诊断输出重定向到了 `/dev/null`，Actions 日志最终只留下 `exit code 1`。
-本仓库现在像固定的 `pmos-example/configs/extlinux.conf` 一样显式管理这三个关键
-指令：`linux /vmlinuz`、默认 UFI001C `fdt` 和指向 `pmOS_root` 文件系统标签的
-`append`。配置缺失时会创建，存在时会规范化，并在写回后重新导出验证。
+失败脚本把所有 `debugfs` 输出重定向到了 `/dev/null`，多个裸断言也没有错误说明，
+Actions 日志最终只留下 `exit code 1`；旧 run 究竟触发了哪一个断言已无法从留存日志
+恢复。后续诊断 run `30320893039` 证明实际 boot 镜像中存在 extlinux、内核和目标
+DTB，也让 helper 自身的路径/变量错误可以被准确定位，不再把镜像内容缺失当作未经
+证实的结论。
+
+本仓库现在像固定的 `pmos-example/configs/extlinux.conf` 一样显式管理三个关键指令：
+`linux /vmlinuz`、默认 UFI001C `fdt` 和指向 `pmOS_root` 文件系统标签的 `append`。
+配置缺失时会创建，存在时会规范化，并在写回后重新导出验证；任何失败都会输出具体
+命令、文件路径以及 boot 镜像的相关目录清单。
 
 这个问题也是“固定源码、滚动二进制”边界的另一种表现：该 run 使用固定 pmaports
 里的 `device-zhihe-generic 7-r0` 元数据，但 edge 镜像实际安装了 `8-r0`。版本漂移

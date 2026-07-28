@@ -21,28 +21,30 @@ fail() {
 }
 
 debugfs_run() {
-	command=$1
-	if ! output=$(debugfs -R "$command" "$boot_image" 2>&1); then
-		printf '%s\n' "$output" >&2
+	local command=$1
+	local result
+	if ! result=$(debugfs -R "$command" "$boot_image" 2>&1); then
+		printf '%s\n' "$result" >&2
 		fail "debugfs command failed: $command"
 	fi
-	case "$output" in
-		*'File not found'*|*'not found by ext2_lookup'*|*'Ext2 directory already exists'*)
-			printf '%s\n' "$output" >&2
+	case "$result" in
+		*'File not found'*|*'not found by ext2_lookup'*|*'No such file or directory'*|*'Ext2 directory already exists'*)
+			printf '%s\n' "$result" >&2
 			fail "debugfs command failed: $command"
 			;;
 	esac
 }
 
 debugfs_write() {
-	command=$1
-	if ! output=$(debugfs -w -R "$command" "$boot_image" 2>&1); then
-		printf '%s\n' "$output" >&2
+	local command=$1
+	local result
+	if ! result=$(debugfs -w -R "$command" "$boot_image" 2>&1); then
+		printf '%s\n' "$result" >&2
 		fail "debugfs write failed: $command"
 	fi
-	case "$output" in
-		*'File not found'*|*'not found by ext2_lookup'*)
-			printf '%s\n' "$output" >&2
+	case "$result" in
+		*'File not found'*|*'not found by ext2_lookup'*|*'No such file or directory'*)
+			printf '%s\n' "$result" >&2
 			fail "debugfs write failed: $command"
 			;;
 	esac
