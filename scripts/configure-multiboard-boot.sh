@@ -73,23 +73,11 @@ read_compatible() {
 debugfs_run 'stat /vmlinuz'
 debugfs_run 'stat /dtbs/qcom'
 
-# Current edge packages do not guarantee that mkinitfs leaves an extlinux.conf
-# in the split boot image. Preserve any unrelated directives when a complete
-# config exists, but own the three boot-critical directives here. This mirrors
-# the known-good pmos-example config without hardcoding a filesystem UUID.
-if debugfs -R "dump /extlinux/extlinux.conf $work_dir/extlinux.conf" \
-	"$boot_image" >"$work_dir/extlinux-dump.txt" 2>&1 \
-		&& [ -s "$work_dir/extlinux.conf" ] \
-		&& grep -q '^[[:space:]]*linux[[:space:]]' "$work_dir/extlinux.conf" \
-		&& grep -q '^[[:space:]]*fdt[[:space:]]' "$work_dir/extlinux.conf" \
-		&& grep -q '^[[:space:]]*append[[:space:]]' "$work_dir/extlinux.conf"; then
-	sed -E -i \
-		-e '/^[[:space:]]*(linux|fdt|append)[[:space:]]/d' \
-		"$work_dir/extlinux.conf"
-else
-	: > "$work_dir/extlinux.conf"
-fi
-cat >> "$work_dir/extlinux.conf" <<'EOF'
+# Current edge packages may generate multiple boot entries or no extlinux.conf
+# at all. The release contract is deliberately one unambiguous entry, so write
+# the complete known-good pmos-example shape instead of merging a rolling
+# template. The root filesystem label is stable across split-image builds.
+cat > "$work_dir/extlinux.conf" <<'EOF'
 linux /vmlinuz
 fdt /dtbs/qcom/msm8916-thwc-ufi001c.dtb
 append earlycon root=LABEL=pmOS_root console=ttyMSM0,115200 no_framebuffer=true rw rootwait
