@@ -185,7 +185,7 @@ jobs:
       - name: Configure and verify the multi-board boot image
         run: |
           mkdir -p artifacts/dtbs
-          scripts/configure-multiboard-boot.sh \
+          sudo bash scripts/configure-multiboard-boot.sh \
             "$PMB_EXPORT/zhihe-generic-boot.img" artifacts/dtbs
 
       - name: Collect and verify release files
