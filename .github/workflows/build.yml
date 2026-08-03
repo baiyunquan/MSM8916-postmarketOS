@@ -76,6 +76,18 @@ jobs:
       - name: Add the 19-board kernel overlay
         run: scripts/prepare-pmaports.sh "$PMB_APORTS"
 
+      - name: Restore pmbootstrap ccache
+        # Cache only compiler objects. Chroots hold bind mounts and binfmt
+        # state, so restoring them would make a later build unreliable.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PMB_WORK }}/ccache
+            ${{ env.PMB_WORK }}/ccache_aarch64
+          key: pmbootstrap-ccache-${{ env.PMBOOTSTRAP_REV }}-${{ env.PMAPORTS_REV }}
+          restore-keys: |
+            pmbootstrap-ccache-${{ env.PMBOOTSTRAP_REV }}-
+
       - name: Configure pmbootstrap
         run: |
           mkdir -p "$PMB_WORK"
