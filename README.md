@@ -32,7 +32,7 @@ LED、按键、屏幕、充电或 USB Gadget 真机枚举验证。
 - `config/rndis-gadget` 提供本仓库独立的
   `postmarketos-msm8916-rndis-gadget` aport。它参考 `pmos-example` 的
   `libcomposite + configfs + RNDIS + NetworkManager shared` 结构，但使用 Alpine
-  原生 shell/OpenRC 实现，不把 Debian 的 `gt/libusbgx` 二进制带进 postmarketOS。
+  原生 shell/systemd 实现，不把 Debian 的 `gt/libusbgx` 二进制带进 postmarketOS。
   独立包名也确保滚动镜像中的新版 `device-zhihe-generic` 不会覆盖这部分定制。
 
 构建固定使用以下上游版本，避免 GitHub Actions 每次跟随上游 `main` 漂移：
@@ -83,7 +83,7 @@ workflow** 手动触发完整构建，runner 固定为 `ubuntu-24.04`（原因�
 2. 为 pmaports 内核包加入 19 款 DTB 并从源码重建内核；
 3. 构建 RNDIS Gadget aport，生成带 ModemManager/QMI/QRTR 的 console
    postmarketOS split 镜像；
-4. 挂载 root 镜像，检查 OpenRC 服务、configfs 脚本、NetworkManager shared
+4. 挂载 root 镜像，检查 systemd 服务、configfs 脚本、NetworkManager shared
    配置以及开机启用链接；
 5. 把 extlinux 默认 `fdt` 改为 `/dtbs/qcom/msm8916-thwc-ufi001c.dtb`；
 6. 检查 boot 镜像内 19 个 DTB 的 `compatible`，生成 `SHA256SUMS`；
@@ -114,8 +114,8 @@ export/
 
 ## USB Gadget 与 RNDIS
 
-镜像安装 `postmarketos-msm8916-rndis-gadget` 后，会把
-`usb-gadget-rndis` 加入 OpenRC 的 `default` runlevel。启动顺序为：加载
+镜像安装 `postmarketos-msm8916-rndis-gadget` 后，会将
+`usb-gadget-rndis.service` 启用到 systemd 的 `multi-user.target`。启动顺序为：加载
 `libcomposite`、挂载 configfs、创建 `rndis.usb0`、绑定首个可用 UDC，最后激活
 NetworkManager 的共享连接。随包安装的 udev 与 NetworkManager 规则会显式接管
 `usb0` 并忽略未插主机时的 carrier 缺失，因此开机时没有连接 USB 线也不会删除
@@ -138,7 +138,7 @@ Windows 通常会按 RNDIS 网卡识别；Linux 主机一般由 `rndis_host` 驱
 设备端诊断命令：
 
 ```sh
-rc-service usb-gadget-rndis status
+systemctl status usb-gadget-rndis.service
 ls /sys/class/udc
 cat /sys/kernel/config/usb_gadget/msm8916-rndis/UDC
 nmcli connection show --active
@@ -148,7 +148,7 @@ ip address show usb0
 重新创建 Gadget 可运行：
 
 ```sh
-sudo rc-service usb-gadget-rndis restart
+sudo systemctl restart usb-gadget-rndis.service
 ```
 
 若某个 DTB 把 USB 控制器保持在 host 模式、UDC 没有出现或硬件的 ID/VBUS 检测不匹配，

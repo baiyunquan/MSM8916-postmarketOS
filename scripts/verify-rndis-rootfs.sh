@@ -24,17 +24,17 @@ fi
 mount -o loop,ro "$root_image" "$mount_dir"
 
 test -x "$mount_dir/usr/sbin/usb-gadget-rndis"
-test -x "$mount_dir/etc/init.d/usb-gadget-rndis"
+test -f "$mount_dir/usr/lib/systemd/system/usb-gadget-rndis.service"
 test -f "$mount_dir/etc/NetworkManager/system-connections/usb-gadget-rndis.nmconnection"
 test -f "$mount_dir/etc/NetworkManager/conf.d/90-msm8916-rndis.conf"
 test -f "$mount_dir/etc/udev/rules.d/99-msm8916-rndis.rules"
 test "$(stat -c '%a' "$mount_dir/etc/NetworkManager/system-connections/usb-gadget-rndis.nmconnection")" = 600
-test -L "$mount_dir/etc/runlevels/default/usb-gadget-rndis"
-runlevel_target=$(readlink "$mount_dir/etc/runlevels/default/usb-gadget-rndis")
-case "$runlevel_target" in
-	/etc/init.d/usb-gadget-rndis|../../init.d/usb-gadget-rndis) ;;
+test -L "$mount_dir/etc/systemd/system/multi-user.target.wants/usb-gadget-rndis.service"
+unit_target=$(readlink "$mount_dir/etc/systemd/system/multi-user.target.wants/usb-gadget-rndis.service")
+case "$unit_target" in
+	/usr/lib/systemd/system/usb-gadget-rndis.service) ;;
 	*)
-		echo "Unexpected OpenRC runlevel target: $runlevel_target" >&2
+		echo "Unexpected systemd unit target: $unit_target" >&2
 		exit 1
 		;;
 esac
@@ -52,5 +52,9 @@ grep -Fq 'method=shared' \
 	"$mount_dir/etc/NetworkManager/system-connections/usb-gadget-rndis.nmconnection"
 grep -Fq 'address1=192.168.5.1/24' \
 	"$mount_dir/etc/NetworkManager/system-connections/usb-gadget-rndis.nmconnection"
+grep -Fq 'Wants=NetworkManager.service' \
+	"$mount_dir/usr/lib/systemd/system/usb-gadget-rndis.service"
+grep -Fq 'ExecStart=/usr/sbin/usb-gadget-rndis start' \
+	"$mount_dir/usr/lib/systemd/system/usb-gadget-rndis.service"
 
-echo "Verified the OpenRC RNDIS gadget and NetworkManager shared profile in the root image"
+echo "Verified the systemd RNDIS gadget and NetworkManager shared profile in the root image"
