@@ -15,6 +15,8 @@ fail() {
 	debugfs -R 'ls -l /' "$boot_image" >&2 || true
 	echo "Boot image /extlinux directory:" >&2
 	debugfs -R 'ls -l /extlinux' "$boot_image" >&2 || true
+	echo "Boot image /extlinux/extlinux.conf contents:" >&2
+	debugfs -R 'cat /extlinux/extlinux.conf' "$boot_image" >&2 || true
 	echo "Boot image /dtbs/qcom directory:" >&2
 	debugfs -R 'ls -l /dtbs/qcom' "$boot_image" >&2 || true
 	exit 1
@@ -43,11 +45,43 @@ debugfs_write() {
 		fail "debugfs write failed: $command"
 	fi
 	case "$result" in
-		*'File not found'*|*'not found by ext2_lookup'*|*'No such file or directory'*)
+		*'File not found'*|*'not found by ext2_lookup'*|*'No such file or directory'*|*'Ext2 file already exists'*|*'File exists'*)
 			printf '%s\n' "$result" >&2
 			fail "debugfs write failed: $command"
 			;;
 	esac
+}
+
+debugfs_path_exists() {
+	local path=$1
+	local result
+	if ! result=$(debugfs -R "stat $path" "$boot_image" 2>&1); then
+		printf '%s\n' "$result" >&2
+		fail "debugfs stat failed: $path"
+	fi
+	case "$result" in
+		*'File not found'*|*'not found by ext2_lookup'*|*'No such file or directory'*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+debugfs_remove_file() {
+	local path=$1
+	local result
+	if ! debugfs_path_exists "$path"; then
+		return
+	fi
+
+	if ! result=$(debugfs -w -R "rm $path" "$boot_image" 2>&1); then
+		printf '%s\n' "$result" >&2
+		fail "debugfs remove failed: $path"
+	fi
+	if debugfs_path_exists "$path"; then
+		printf '%s\n' "$result" >&2
+		fail "debugfs did not remove existing file: $path"
+	fi
 }
 
 if [ ! -s "$boot_image" ]; then
@@ -87,12 +121,12 @@ if ! debugfs -R 'stat /extlinux' "$boot_image" >"$work_dir/extlinux-stat.txt" 2>
 		|| grep -Eq 'File not found|not found by ext2_lookup' "$work_dir/extlinux-stat.txt"; then
 	debugfs_write 'mkdir /extlinux'
 fi
-debugfs -w -R 'rm /extlinux/extlinux.conf' "$boot_image" >/dev/null 2>&1 || true
+debugfs_remove_file '/extlinux/extlinux.conf'
 debugfs_write "write $work_dir/extlinux.conf /extlinux/extlinux.conf"
 debugfs_write 'set_inode_field /extlinux/extlinux.conf mode 0100644'
 
 for item in boards.conf README-BOARD-SELECTION.txt; do
-	debugfs -w -R "rm /$item" "$boot_image" >/dev/null 2>&1 || true
+	debugfs_remove_file "/$item"
 done
 debugfs_write "write $repo_root/config/boards.conf /boards.conf"
 debugfs_write "write $repo_root/config/BOOT-README.txt /README-BOARD-SELECTION.txt"
@@ -111,6 +145,8 @@ while IFS='|' read -r board dtb _source compatible _display; do
 done < "$repo_root/config/boards.conf"
 
 debugfs_run "dump /extlinux/extlinux.conf $work_dir/verify-extlinux.conf"
+cmp -s "$work_dir/extlinux.conf" "$work_dir/verify-extlinux.conf" \
+	|| fail "extlinux.conf does not match the required single-entry configuration"
 [ "$(grep -c '^[[:space:]]*linux ' "$work_dir/verify-extlinux.conf")" -eq 1 ] \
 	|| fail "extlinux.conf must contain exactly one linux directive"
 [ "$(grep -c '^[[:space:]]*fdt ' "$work_dir/verify-extlinux.conf")" -eq 1 ] \
