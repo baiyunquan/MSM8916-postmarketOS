@@ -1,7 +1,7 @@
 # Maintainer: baiyunquan <baiyunquan@users.noreply.github.com>
 pkgname=postmarketos-msm8916-rndis-gadget
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc="systemd USB RNDIS gadget for the MSM8916 multi-board image"
 url="https://github.com/baiyunquan/MSM8916-postmarketOS"
 arch="noarch"
@@ -16,6 +16,7 @@ options="!check"
 source="
 	usb-gadget-rndis
 	usb-gadget-rndis.service
+	90-msm8916-rndis.preset
 	usb-gadget-rndis.nmconnection
 	90-msm8916-rndis.conf
 	99-msm8916-rndis.rules
@@ -26,9 +27,8 @@ package() {
 		"$pkgdir/usr/sbin/usb-gadget-rndis"
 	install -Dm644 "$srcdir/usb-gadget-rndis.service" \
 		"$pkgdir/usr/lib/systemd/system/usb-gadget-rndis.service"
-	install -d "$pkgdir/etc/systemd/system/multi-user.target.wants"
-	ln -s /usr/lib/systemd/system/usb-gadget-rndis.service \
-		"$pkgdir/etc/systemd/system/multi-user.target.wants/usb-gadget-rndis.service"
+	install -Dm644 "$srcdir/90-msm8916-rndis.preset" \
+		"$pkgdir/usr/lib/systemd/system-preset/90-msm8916-rndis.preset"
 	install -Dm600 "$srcdir/usb-gadget-rndis.nmconnection" \
 		"$pkgdir/etc/NetworkManager/system-connections/usb-gadget-rndis.nmconnection"
 	install -Dm644 "$srcdir/90-msm8916-rndis.conf" \
@@ -40,6 +40,7 @@ package() {
 sha512sums="
 	511a07830dfa9006811f85b2ba629ed1f6894124cc78a1779f72ec936efd9d61f9b029f952abc37cb712bd18bd4c55fc055e7d15e3850cc1cb43d6d8fdccfbee  usb-gadget-rndis
 	6f03fdd4b83541e439fd419d9c1a3a68919d7d48989bc5baed47b553260296de0072ba03eb3ad640cd7b594fd948710430039b5c6ae7fc40eb5b566c39064174  usb-gadget-rndis.service
+	3fef44d2fd5a9950638dfe8e09a7d51b74d63208d99a95732ea1b22ef7a8badf1afb41733c8299ce752ea5708650d7ae7d5665297b44b54cb0ae8b8755ac2ecf  90-msm8916-rndis.preset
 	313d99a6965089db57bcaf581b18dd57016aa13bd1fdba2ae405ac39a0f2b1ceef3c5515d0985dd595fcc4b7daf4d170e6feda94dec49a2bdd40b48b5f6bc923  usb-gadget-rndis.nmconnection
 	9ead7a57a9e8f1aed252b6fa58ad8864f43e142c84b2297c95b5752227ed4533a70df09fbac6a6b8297463366c0b7f2f11b08137761a16fe641638ea80c2def6  90-msm8916-rndis.conf
 	0e612abbff53547832203d9dbb23dc11f5ccfce184b2a8c79401f0ced586eb1526897e85d845eab9f7f2c16ae7d9ee408c79300976f4c40765b0cbe3b65fc39e  99-msm8916-rndis.rules

@@ -115,7 +115,8 @@ export/
 ## USB Gadget 与 RNDIS
 
 镜像安装 `postmarketos-msm8916-rndis-gadget` 后，会将
-`usb-gadget-rndis.service` 启用到 systemd 的 `multi-user.target`。启动顺序为：加载
+`usb-gadget-rndis.service` 通过随包的 systemd preset 启用到 `multi-user.target`。
+启动顺序为：加载
 `libcomposite`、挂载 configfs、创建 `rndis.usb0`、绑定首个可用 UDC，最后激活
 NetworkManager 的共享连接。随包安装的 udev 与 NetworkManager 规则会显式接管
 `usb0` 并忽略未插主机时的 carrier 缺失，因此开机时没有连接 USB 线也不会删除

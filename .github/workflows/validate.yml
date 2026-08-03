@@ -47,6 +47,8 @@ jobs:
             config/rndis-gadget/usb-gadget-rndis.service
           grep -Fqx 'WantedBy=multi-user.target' \
             config/rndis-gadget/usb-gadget-rndis.service
+          grep -Fqx 'enable usb-gadget-rndis.service' \
+            config/rndis-gadget/90-msm8916-rndis.preset
           test "$(grep -cv '^#' config/boards.conf)" -eq 19
           test "$(cut -d '|' -f1 config/boards.conf | grep -v '^#' | sort -u | wc -l)" -eq 19
           test "$(grep -c '.dtb$' config/openstick-dtbs.list)" -eq 14
@@ -63,6 +65,7 @@ jobs:
             /tmp/pmaports/device/testing/postmarketos-msm8916-rndis-gadget/APKBUILD
           ! grep -Fq 'openrc' /tmp/pmaports/device/testing/postmarketos-msm8916-rndis-gadget/APKBUILD
           test -f /tmp/pmaports/device/testing/postmarketos-msm8916-rndis-gadget/usb-gadget-rndis.service
+          test -f /tmp/pmaports/device/testing/postmarketos-msm8916-rndis-gadget/90-msm8916-rndis.preset
           kernel_config=/tmp/pmaports/device/testing/linux-postmarketos-qcom-msm8916/config-postmarketos-qcom-msm8916.aarch64
           grep -Fqx 'CONFIG_USB_GADGET=y' "$kernel_config"
           grep -Fqx 'CONFIG_CONFIGFS_FS=y' "$kernel_config"
