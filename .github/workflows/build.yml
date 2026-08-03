@@ -89,7 +89,7 @@ jobs:
           build_pkgs_on_install = True
           ccache_size = 5G
           device = zhihe-generic
-          extra_packages = soc-qcom-msm8916-rproc,qmi-utils,qrtr,modemmanager,iw,wpa_supplicant,wireless-regdb
+          extra_packages = postmarketos-msm8916-rndis-gadget,soc-qcom-msm8916-rproc,qmi-utils,qrtr,modemmanager,iw,wpa_supplicant,wireless-regdb
           hostname = msm8916-pmos
           is_default_channel = False
           jobs = 4
@@ -113,10 +113,23 @@ jobs:
           pmbootstrap config ui
           pmbootstrap config extra_packages
 
-      - name: Checksum and build the patched kernel package
+      - name: Checksum and build the local kernel and RNDIS packages
         run: |
-          pmbootstrap checksum linux-postmarketos-qcom-msm8916
+          for attempt in 1 2 3; do
+            if pmbootstrap checksum linux-postmarketos-qcom-msm8916; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Kernel source fetch failed after 3 attempts" >&2
+              tail -n 500 "$PMB_WORK/log.txt" >&2 || true
+              exit 1
+            fi
+            echo "Kernel source fetch failed (attempt $attempt/3); retrying in 30s" >&2
+            sleep 30
+          done
           pmbootstrap build --arch aarch64 --force linux-postmarketos-qcom-msm8916
+          pmbootstrap checksum postmarketos-msm8916-rndis-gadget
+          pmbootstrap build --arch aarch64 --force postmarketos-msm8916-rndis-gadget
 
       - name: Build split postmarketOS image
         run: |
@@ -130,6 +143,11 @@ jobs:
             exit 1
           fi
           pmbootstrap export
+
+      - name: Verify the RNDIS gadget in the root image
+        run: |
+          sudo bash scripts/verify-rndis-rootfs.sh \
+            "$PMB_EXPORT/zhihe-generic-root.img"
 
       - name: Upload pmbootstrap failure log
         # Not failure(): a job killed by the timeout is "cancelled", and this

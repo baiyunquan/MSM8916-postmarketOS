@@ -1,0 +1,2 @@
+# Override NetworkManager's default policy that ignores USB gadget interfaces.
+SUBSYSTEM=="net", ACTION=="add|change|move", KERNEL=="usb0", ENV{DEVTYPE}=="gadget", ENV{NM_UNMANAGED}="0"

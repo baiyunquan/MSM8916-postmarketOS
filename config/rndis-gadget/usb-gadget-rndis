@@ -1,0 +1,136 @@
+#!/bin/sh
+set -eu
+
+gadget=/sys/kernel/config/usb_gadget/msm8916-rndis
+connection=usb-gadget-rndis
+
+remove_gadget() {
+	if [ ! -d "$gadget" ]; then
+		return 0
+	fi
+
+	if [ -e "$gadget/UDC" ]; then
+		printf '%s' '' > "$gadget/UDC" 2>/dev/null || true
+	fi
+
+	rm -f "$gadget/os_desc/c.1"
+	rm -f "$gadget/configs/c.1/rndis.usb0"
+	rmdir "$gadget/functions/rndis.usb0" 2>/dev/null || true
+	rmdir "$gadget/configs/c.1/strings/0x409" 2>/dev/null || true
+	rmdir "$gadget/configs/c.1" 2>/dev/null || true
+	rmdir "$gadget/strings/0x409" 2>/dev/null || true
+	rmdir "$gadget" 2>/dev/null || true
+}
+
+stop_gadget() {
+	if command -v nmcli >/dev/null 2>&1; then
+		nmcli connection down "$connection" >/dev/null 2>&1 || true
+	fi
+	remove_gadget
+}
+
+start_gadget() {
+	local_udc=
+	serial=postmarketos
+	tries=0
+
+	modprobe libcomposite
+	mkdir -p /sys/kernel/config
+	if ! grep -qs '[[:space:]]/sys/kernel/config[[:space:]]' /proc/mounts; then
+		mount -t configfs configfs /sys/kernel/config
+	fi
+
+	while [ -z "$local_udc" ]; do
+		for udc_path in /sys/class/udc/*; do
+			if [ -e "$udc_path" ]; then
+				local_udc=${udc_path##*/}
+				break
+			fi
+		done
+		if [ "$tries" -ge 50 ]; then
+			break
+		fi
+		tries=$((tries + 1))
+		sleep 0.1
+	done
+	if [ -z "$local_udc" ]; then
+		echo "No USB device controller is available" >&2
+		return 1
+	fi
+
+	# Only clean the gadget owned by this package. Never disturb initramfs or
+	# user-created gadgets with a different name.
+	remove_gadget
+	mkdir -p "$gadget"
+	printf '%s' 0x1d6b > "$gadget/idVendor"
+	printf '%s' 0x0104 > "$gadget/idProduct"
+	printf '%s' 0x0200 > "$gadget/bcdUSB"
+	printf '%s' 0x0100 > "$gadget/bcdDevice"
+
+	if [ -r /etc/machine-id ]; then
+		serial=$(tr -cd '[:alnum:]' < /etc/machine-id | cut -c1-32)
+		serial=${serial:-postmarketos}
+	fi
+	mkdir -p "$gadget/strings/0x409"
+	printf '%s' "$serial" > "$gadget/strings/0x409/serialnumber"
+	printf '%s' postmarketOS > "$gadget/strings/0x409/manufacturer"
+	printf '%s' 'MSM8916 RNDIS Gadget' > "$gadget/strings/0x409/product"
+
+	mkdir -p "$gadget/functions/rndis.usb0"
+	printf '%s' 8a:b1:27:16:8e:a7 > "$gadget/functions/rndis.usb0/dev_addr"
+	printf '%s' 2a:85:da:41:eb:f9 > "$gadget/functions/rndis.usb0/host_addr"
+	if [ -d "$gadget/functions/rndis.usb0/os_desc/interface.rndis" ]; then
+		printf '%s' RNDIS > \
+			"$gadget/functions/rndis.usb0/os_desc/interface.rndis/compatible_id"
+		printf '%s' 5162001 > \
+			"$gadget/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id"
+	fi
+
+	mkdir -p "$gadget/configs/c.1/strings/0x409"
+	printf '%s' 0x80 > "$gadget/configs/c.1/bmAttributes"
+	printf '%s' 250 > "$gadget/configs/c.1/MaxPower"
+	printf '%s' RNDIS > "$gadget/configs/c.1/strings/0x409/configuration"
+	ln -s ../../functions/rndis.usb0 "$gadget/configs/c.1/rndis.usb0"
+
+	printf '%s' 1 > "$gadget/os_desc/use"
+	printf '%s' MSFT100 > "$gadget/os_desc/qw_sign"
+	printf '%s' 0xbc > "$gadget/os_desc/b_vendor_code"
+	ln -s ../configs/c.1 "$gadget/os_desc/c.1"
+
+	printf '%s' "$local_udc" > "$gadget/UDC"
+	nmcli connection reload
+
+	tries=0
+	while [ ! -e /sys/class/net/usb0 ]; do
+		if [ "$tries" -ge 20 ]; then
+			echo "RNDIS function did not create usb0" >&2
+			remove_gadget
+			return 1
+		fi
+		tries=$((tries + 1))
+		sleep 0.1
+	done
+
+	# Ensure the shared profile is selected even if another generic Ethernet
+	# profile raced NetworkManager when usb0 appeared.
+	if ! nmcli connection up "$connection" ifname usb0 >/dev/null; then
+		echo "RNDIS is bound; NetworkManager will retry the shared profile" >&2
+	fi
+}
+
+case ${1:-} in
+	start)
+		start_gadget
+		;;
+	stop)
+		stop_gadget
+		;;
+	restart)
+		stop_gadget
+		start_gadget
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}" >&2
+		exit 2
+		;;
+esac

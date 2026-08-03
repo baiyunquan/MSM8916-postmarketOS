@@ -184,7 +184,7 @@ write_config() {
 		build_pkgs_on_install = True
 		ccache_size = 5G
 		device = zhihe-generic
-		extra_packages = soc-qcom-msm8916-rproc,qmi-utils,qrtr,modemmanager,iw,wpa_supplicant,wireless-regdb
+		extra_packages = postmarketos-msm8916-rndis-gadget,soc-qcom-msm8916-rproc,qmi-utils,qrtr,modemmanager,iw,wpa_supplicant,wireless-regdb
 		hostname = msm8916-pmos
 		is_default_channel = False
 		jobs = ${JOBS:-$(nproc)}
@@ -226,6 +226,12 @@ build_kernel() {
 
 	if ! pmb build --arch aarch64 --force linux-postmarketos-qcom-msm8916; then
 		dump_log "pmbootstrap build"
+		exit 1
+	fi
+
+	pmb checksum postmarketos-msm8916-rndis-gadget
+	if ! pmb build --arch aarch64 --force postmarketos-msm8916-rndis-gadget; then
+		dump_log "pmbootstrap RNDIS gadget build"
 		exit 1
 	fi
 }
@@ -312,6 +318,8 @@ sync_upstream
 write_config
 build_kernel
 build_image
+sudo bash "$repo_root/scripts/verify-rndis-rootfs.sh" \
+	"$PMB_EXPORT/zhihe-generic-root.img"
 build_bootloaders
 
 mkdir -p "$output_dir/dtbs"

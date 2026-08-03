@@ -1,0 +1,5 @@
+#!/bin/sh
+
+if [ -x /sbin/rc-update ]; then
+	rc-update add usb-gadget-rndis default
+fi

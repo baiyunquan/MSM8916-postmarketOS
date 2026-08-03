@@ -1,0 +1,45 @@
+# Maintainer: MSM8916 postmarketOS multi-board project
+pkgname=postmarketos-msm8916-rndis-gadget
+pkgver=1
+pkgrel=0
+pkgdesc="OpenRC USB RNDIS gadget for the MSM8916 multi-board image"
+url="https://github.com/baiyunquan/MSM8916-postmarketOS"
+arch="noarch"
+license="MIT"
+depends="
+	kmod
+	networkmanager
+	networkmanager-cli
+	networkmanager-dnsmasq
+	openrc
+	"
+options="!check"
+install="$pkgname.post-install $pkgname.post-upgrade"
+source="
+	usb-gadget-rndis
+	usb-gadget-rndis.initd
+	usb-gadget-rndis.nmconnection
+	90-msm8916-rndis.conf
+	99-msm8916-rndis.rules
+	"
+
+package() {
+	install -Dm755 "$srcdir/usb-gadget-rndis" \
+		"$pkgdir/usr/sbin/usb-gadget-rndis"
+	install -Dm755 "$srcdir/usb-gadget-rndis.initd" \
+		"$pkgdir/etc/init.d/usb-gadget-rndis"
+	install -Dm600 "$srcdir/usb-gadget-rndis.nmconnection" \
+		"$pkgdir/etc/NetworkManager/system-connections/usb-gadget-rndis.nmconnection"
+	install -Dm644 "$srcdir/90-msm8916-rndis.conf" \
+		"$pkgdir/etc/NetworkManager/conf.d/90-msm8916-rndis.conf"
+	install -Dm644 "$srcdir/99-msm8916-rndis.rules" \
+		"$pkgdir/etc/udev/rules.d/99-msm8916-rndis.rules"
+}
+
+sha512sums="
+	511a07830dfa9006811f85b2ba629ed1f6894124cc78a1779f72ec936efd9d61f9b029f952abc37cb712bd18bd4c55fc055e7d15e3850cc1cb43d6d8fdccfbee  usb-gadget-rndis
+	9486e3af1c28f5e00242f1be0a8d1b956bfabcb0f068146106caa095f590769c71d599729ff5c25e47b7f2887b0cf15c873f8b9ccc3ad15aac5a63342aaa2fe4  usb-gadget-rndis.initd
+	313d99a6965089db57bcaf581b18dd57016aa13bd1fdba2ae405ac39a0f2b1ceef3c5515d0985dd595fcc4b7daf4d170e6feda94dec49a2bdd40b48b5f6bc923  usb-gadget-rndis.nmconnection
+	9ead7a57a9e8f1aed252b6fa58ad8864f43e142c84b2297c95b5752227ed4533a70df09fbac6a6b8297463366c0b7f2f11b08137761a16fe641638ea80c2def6  90-msm8916-rndis.conf
+	0e612abbff53547832203d9dbb23dc11f5ccfce184b2a8c79401f0ced586eb1526897e85d845eab9f7f2c16ae7d9ee408c79300976f4c40765b0cbe3b65fc39e  99-msm8916-rndis.rules
+"

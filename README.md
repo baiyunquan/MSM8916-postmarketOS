@@ -5,11 +5,13 @@
 本仓库把 `debian-dtbs` 中的 MSM8916 设备树移植到 `postmarketOS` 的
 `linux-postmarketos-qcom-msm8916` 内核构建流程中。最终只生成一套 split
 boot/root 镜像，boot 分区同时携带 19 款 DTB；具体型号通过
-`/boot/extlinux/extlinux.conf` 中的 `fdt` 行选择。
+`/boot/extlinux/extlinux.conf` 中的 `fdt` 行选择。rootfs 还包含默认启用的
+configfs RNDIS USB Gadget，USB 主机通过 `usb0` 接入 `192.168.5.0/24`。
 
-当前验收范围是 CI、19 款 DTB 编译/结构检查、boot 镜像内容检查和校验和检查。
+当前验收范围是 CI、19 款 DTB 编译/结构检查、boot 镜像内容检查、rootfs RNDIS
+文件/启用结构检查和校验和检查。
 除 postmarketOS 原生支持的板型外，尚未宣称已完成真机启动、调制解调器、Wi-Fi、
-LED、按键、屏幕或充电功能验证。
+LED、按键、屏幕、充电或 USB Gadget 真机枚举验证。
 
 ## 设计与来源
 
@@ -27,6 +29,11 @@ LED、按键、屏幕或充电功能验证。
   包；上游删掉 `-nonfree-firmware` 子包后，不打这个补丁 apk 就会因为镜像里已经
   没有该包而报 `unable to select packages`。两个固件包已被上游提升为主包依赖，
   功能不受影响。
+- `config/rndis-gadget` 提供本仓库独立的
+  `postmarketos-msm8916-rndis-gadget` aport。它参考 `pmos-example` 的
+  `libcomposite + configfs + RNDIS + NetworkManager shared` 结构，但使用 Alpine
+  原生 shell/OpenRC 实现，不把 Debian 的 `gt/libusbgx` 二进制带进 postmarketOS。
+  独立包名也确保滚动镜像中的新版 `device-zhihe-generic` 不会覆盖这部分定制。
 
 构建固定使用以下上游版本，避免 GitHub Actions 每次跟随上游 `main` 漂移：
 
@@ -74,10 +81,13 @@ workflow** 手动触发完整构建，runner 固定为 `ubuntu-24.04`（原因�
 
 1. 检出所有固定 submodule；
 2. 为 pmaports 内核包加入 19 款 DTB 并从源码重建内核；
-3. 生成带 ModemManager/QMI/QRTR 的 console postmarketOS split 镜像；
-4. 把 extlinux 默认 `fdt` 改为 `/dtbs/qcom/msm8916-thwc-ufi001c.dtb`；
-5. 检查 boot 镜像内 19 个 DTB 的 `compatible`，生成 `SHA256SUMS`；
-6. 同时上传 Actions Artifact，并创建预发布 GitHub Release。
+3. 构建 RNDIS Gadget aport，生成带 ModemManager/QMI/QRTR 的 console
+   postmarketOS split 镜像；
+4. 挂载 root 镜像，检查 OpenRC 服务、configfs 脚本、NetworkManager shared
+   配置以及开机启用链接；
+5. 把 extlinux 默认 `fdt` 改为 `/dtbs/qcom/msm8916-thwc-ufi001c.dtb`；
+6. 检查 boot 镜像内 19 个 DTB 的 `compatible`，生成 `SHA256SUMS`；
+7. 同时上传 Actions Artifact，并创建预发布 GitHub Release。
 
 发布包 `postmarketos-msm8916-multiboard.tar.gz` 的主要内容：
 
@@ -101,6 +111,50 @@ export/
 ```
 
 镜像默认账户为 `user`，初始密码为 `147147`。首次启动后应立即修改密码。
+
+## USB Gadget 与 RNDIS
+
+镜像安装 `postmarketos-msm8916-rndis-gadget` 后，会把
+`usb-gadget-rndis` 加入 OpenRC 的 `default` runlevel。启动顺序为：加载
+`libcomposite`、挂载 configfs、创建 `rndis.usb0`、绑定首个可用 UDC，最后激活
+NetworkManager 的共享连接。随包安装的 udev 与 NetworkManager 规则会显式接管
+`usb0` 并忽略未插主机时的 carrier 缺失，因此开机时没有连接 USB 线也不会删除
+Gadget；插线后仍可自动激活共享配置。
+
+默认网络参数：
+
+| 项目 | 值 |
+|---|---|
+| Gadget 类型 | RNDIS，带 Microsoft OS descriptor |
+| 设备端接口 | `usb0` |
+| 设备端地址 | `192.168.5.1/24` |
+| 主机端地址 | 由 NetworkManager/dnsmasq 自动分配 |
+| IPv4 转发/NAT | NetworkManager `ipv4.method=shared` |
+
+Windows 通常会按 RNDIS 网卡识别；Linux 主机一般由 `rndis_host` 驱动接管。连接后
+可先尝试 `ssh user@192.168.5.1`。如果主机没有取得 DHCP 地址，可临时给主机端接口
+设置 `192.168.5.2/24`，网关使用 `192.168.5.1`。
+
+设备端诊断命令：
+
+```sh
+rc-service usb-gadget-rndis status
+ls /sys/class/udc
+cat /sys/kernel/config/usb_gadget/msm8916-rndis/UDC
+nmcli connection show --active
+ip address show usb0
+```
+
+重新创建 Gadget 可运行：
+
+```sh
+sudo rc-service usb-gadget-rndis restart
+```
+
+若某个 DTB 把 USB 控制器保持在 host 模式、UDC 没有出现或硬件的 ID/VBUS 检测不匹配，
+服务会报告 `No USB device controller is available`，主机也不会枚举设备。CI 只检查内核
+配置能力和 rootfs 文件/启用结构，不能代替 19 款设备逐一进行 RNDIS、DHCP、NAT 和
+USB role 真机验证。
 
 ## 选择设备树
 

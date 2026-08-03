@@ -36,7 +36,15 @@ jobs:
       - name: Validate repository scripts and manifests
         run: |
           shellcheck scripts/*.sh
+          shellcheck config/rndis-gadget/usb-gadget-rndis
+          shellcheck config/rndis-gadget/usb-gadget-rndis.initd
+          shellcheck config/rndis-gadget/postmarketos-msm8916-rndis-gadget.post-*
           for script in scripts/*.sh; do bash -n "$script"; done
+          for script in config/rndis-gadget/usb-gadget-rndis \
+            config/rndis-gadget/usb-gadget-rndis.initd \
+            config/rndis-gadget/postmarketos-msm8916-rndis-gadget.post-*; do
+            sh -n "$script"
+          done
           test "$(grep -cv '^#' config/boards.conf)" -eq 19
           test "$(cut -d '|' -f1 config/boards.conf | grep -v '^#' | sort -u | wc -l)" -eq 19
           test "$(grep -c '.dtb$' config/openstick-dtbs.list)" -eq 14
@@ -48,6 +56,14 @@ jobs:
           git -C /tmp/pmaports checkout "$PMAPORTS_REV"
           scripts/prepare-pmaports.sh /tmp/pmaports
           grep -Fq 'pkgrel=7' /tmp/pmaports/device/testing/linux-postmarketos-qcom-msm8916/APKBUILD
+          test -f /tmp/pmaports/device/testing/postmarketos-msm8916-rndis-gadget/APKBUILD
+          grep -Fq 'pkgname=postmarketos-msm8916-rndis-gadget' \
+            /tmp/pmaports/device/testing/postmarketos-msm8916-rndis-gadget/APKBUILD
+          kernel_config=/tmp/pmaports/device/testing/linux-postmarketos-qcom-msm8916/config-postmarketos-qcom-msm8916.aarch64
+          grep -Fqx 'CONFIG_USB_GADGET=y' "$kernel_config"
+          grep -Fqx 'CONFIG_CONFIGFS_FS=y' "$kernel_config"
+          grep -Fqx 'CONFIG_USB_CONFIGFS=m' "$kernel_config"
+          grep -Fqx 'CONFIG_USB_CONFIGFS_RNDIS=y' "$kernel_config"
 
       - name: Compile and inspect all 19 DTBs
         run: |
